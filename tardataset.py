@@ -4,7 +4,6 @@ from io import BytesIO
 from PIL import Image, ImageFile
 
 from torch.utils.data import Dataset, get_worker_info
-from torch.multiprocessing import get_start_method
 
 try:  # make torchvision optional
   from torchvision.transforms.functional import to_tensor
@@ -37,17 +36,24 @@ class TarDataset(Dataset):
   """
   def __init__(self, archive, transform=to_tensor, extensions=('.png', '.jpg', '.jpeg'),
     is_valid_file=None):
-    # open tar file, and store headers of all files and folders by name
+    # open tar file. in a multiprocessing setting (e.g. DataLoader workers), we
+    # have to open one file handle per worker (stored as the tar_obj dict), since
+    # when the multiprocessing method is 'fork', the workers share this TarDataset.
+    # we want one file handle per worker because TarFile is not thread-safe.
     self.archive = archive
-    self.tar_obj = tarfile.open(archive)
 
-    members = sorted(self.tar_obj.getmembers(), key=lambda m: m.name)
+    worker = get_worker_info()
+    worker = worker.id if worker else None
+    self.tar_obj = {worker: tarfile.open(archive)}
+
+    # store headers of all files and folders by name
+    members = sorted(self.tar_obj[worker].getmembers(), key=lambda m: m.name)
     self.members_by_name = {m.name: m for m in members}
 
+    # also store references to the iterated samples (a subset of the above)
     self.filter_samples(is_valid_file, extensions)
     
     self.transform = transform
-    self.first_use = True
 
   def filter_samples(self, is_valid_file=None, extensions=('.png', '.jpg', '.jpeg')):
     """Filter the Tar archive's files/folders to obtain the list of samples.
@@ -134,27 +140,22 @@ class TarDataset(Dataset):
     Returns:
       io.BufferedReader: Object used to read the file's content.
     """
-    if self.first_use:
-      self.first_use = False
-      if get_worker_info() is not None and get_start_method() != 'spawn':
-        raise OSError("TarDataset is being used with multiple workers of a DataLoader.\n"
-          "To ensure each worker has its own file handle, the 'spawn' multiprocessing\n"
-          "method must be used. Since this is not the default on Unix, you should call:\n"
-          "torch.multiprocessing.set_start_method('spawn')")
-    return self.tar_obj.extractfile(self.members_by_name[name])
+    # ensure a unique file handle per worker, in multiprocessing settings
+    worker = get_worker_info()
+    worker = worker.id if worker else None
+
+    if worker not in self.tar_obj:
+      self.tar_obj[worker] = tarfile.open(self.archive)
+
+    return self.tar_obj[worker].extractfile(self.members_by_name[name])
 
   def __del__(self):
-    """Close the Tar file handle on exit."""
-    if self.tar_obj:
-      self.tar_obj.close()
+    """Close the TarFile file handles on exit."""
+    for o in self.tar_obj.values():
+      o.close()
 
   def __getstate__(self):
-    """Serialize without the TarFile reference, for multi-process compatibility."""
+    """Serialize without the TarFile references, for multiprocessing compatibility."""
     state = dict(self.__dict__)
-    state['tar_obj'] = None
+    state['tar_obj'] = {}
     return state
-
-  def __setstate__(self, state):
-    """Restore the TarFile reference and reopen the Tar archive."""
-    self.__dict__.update(state)
-    self.tar_obj = tarfile.open(self.archive)

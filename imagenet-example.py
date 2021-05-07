@@ -203,9 +203,6 @@ def main_worker(gpu, ngpus_per_node, args):
     from tarimagefolder import TarImageFolder
     from copy import copy
 
-    # needed with args.workers > 1
-    mp.set_start_method('spawn')
-
     # used to select images in the training and validation sets
     def is_train_image(m):
         return m.isfile() and '/val/' not in m.name and m.name.lower().endswith('.jpeg')
