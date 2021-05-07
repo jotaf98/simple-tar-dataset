@@ -1,6 +1,4 @@
 
-import tarfile
-
 from tardataset import TarDataset
 
 try:  # make torchvision optional
@@ -24,7 +22,9 @@ class TarImageFolder(TarDataset):
     root/cat/[...]/asd932_.png
   
   Args:
-    archive (string): Path to the Tar file containing the dataset.
+    archive (string or TarDataset): Path to the Tar file containing the dataset.
+      Alternatively, pass in a TarDataset object to reuse its cached information;
+      this is useful for loading different subsets within the same archive.
     root_in_archive (string): Root folder within the archive, directly below
       the folders with class names.
     extensions (tuple): Extensions (strings starting with a dot), only files
@@ -48,34 +48,22 @@ class TarImageFolder(TarDataset):
   """
   def __init__(self, archive, transform=to_tensor, extensions=('.png', '.jpg', '.jpeg'),
     is_valid_file=None, root_in_archive=''):
+    # ensure the root path ends with a slash
+    if root_in_archive and not root_in_archive.endswith('/'):
+      root_in_archive = root_in_archive + '/'
     self.root_in_archive = root_in_archive
 
     # load the archive meta information, and filter the samples
     super().__init__(archive=archive, transform=transform, is_valid_file=is_valid_file)
 
-    # assign labels to each sample
-    self.assign_labels()
-
-
-  def filter_samples(self, is_valid_file=None, extensions=('.png', '.jpg', '.jpeg')):
-    """In addition to TarDataset's filtering by extension (or user-supplied),
-    filter further to select only samples within the given root path."""
-    super().filter_samples(is_valid_file, extensions)
-    root = path_with_slash(self.root_in_archive)
-    self.samples = [filename for filename in self.samples if filename.startswith(root)]
-
-
-  def assign_labels(self):
-    """Assign a label to each image, based on the first folder after the root
-    that it's placed in"""
-    root = path_with_slash(self.root_in_archive)
+    # assign a label to each image, based on its top-level folder name
     self.class_to_idx = {}
     self.targets = []
     for filename in self.samples:
       # extract the class name from the file's path inside the Tar archive
       if self.root_in_archive:
-        assert filename.startswith(root)  # sanity check (filter_samples should ensure this)
-        filename = filename[len(root):]  # make path relative to root
+        assert filename.startswith(root_in_archive)  # sanity check (filter_samples should ensure this)
+        filename = filename[len(root_in_archive):]  # make path relative to root
       (class_name, _, _) = filename.partition('/')  # first folder level
 
       # assign increasing label indexes to each class name
@@ -85,6 +73,7 @@ class TarImageFolder(TarDataset):
     if len(self.class_to_idx) == 0:
       raise IOError("No classes (top-level folders) were found with the given criteria. The given\n"
         "extensions, is_valid_file or root_in_archive are too strict, or the archive is empty.")
+
     elif len(self.class_to_idx) == 1:
       raise IOError(f"Only one class (top-level folder) was found: {next(iter(self.class_to_idx))}.\n"
         f"To choose the correct path in the archive where the label folders are located, specify\n"
@@ -92,6 +81,13 @@ class TarImageFolder(TarDataset):
     
     # the inverse mapping is often useful
     self.idx_to_class = {v: k for k, v in self.class_to_idx.items()}
+
+
+  def filter_samples(self, is_valid_file=None, extensions=('.png', '.jpg', '.jpeg')):
+    """In addition to TarDataset's filtering by extension (or user-supplied),
+    filter further to select only samples within the given root path."""
+    super().filter_samples(is_valid_file, extensions)
+    self.samples = [filename for filename in self.samples if filename.startswith(self.root_in_archive)]
 
 
   def __getitem__(self, index):
@@ -115,9 +111,3 @@ class TarImageFolder(TarDataset):
 
     return (image, label)
 
-
-def path_with_slash(path):
-  """Helper function to return a path string ending with a slash (unless it's empty)."""
-  if path and not path.endswith('/'):
-    return path + '/'
-  return path
