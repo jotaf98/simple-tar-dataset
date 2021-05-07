@@ -203,13 +203,6 @@ def main_worker(gpu, ngpus_per_node, args):
     from tarimagefolder import TarImageFolder
     from copy import copy
 
-    # used to select images in the training and validation sets
-    def is_train_image(m):
-        return m.isfile() and '/val/' not in m.name and m.name.lower().endswith('.jpeg')
-
-    def is_val_image(m):
-        return m.isfile() and '/val/' in m.name and m.name.lower().endswith('.jpeg')
-
     # data augmentation
     normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],
                                      std=[0.229, 0.224, 0.225])
@@ -223,7 +216,7 @@ def main_worker(gpu, ngpus_per_node, args):
     # read the archive
     print('Reading Tar archive headers...')
     t = time.time()
-    train_dataset = TarImageFolder(args.data, is_valid_file=is_train_image, transform=transform)
+    train_dataset = TarImageFolder(args.data, root_in_archive='ILSVRC12/train', transform=transform)
     print(f'Done in {float(time.time() - t):.1f} seconds.')
 
     if args.distributed:
@@ -236,10 +229,13 @@ def main_worker(gpu, ngpus_per_node, args):
         num_workers=args.workers, pin_memory=True, sampler=train_sampler)
 
     # to avoid reading the Tar archive again, we simply copy the dataset object
-    # used for training (so reusing all cached info), and filter for val images
-    # instead. we also change the transform (data augmentation) function.
+    # used for training (so reusing all cached info), and filter samples/assign
+    # labels again. we also change the transform (data augmentation) function.
+    # other alternatives: 1) read the dataset twice, 2) subclass TarDataset.
     val_dataset = copy(train_dataset)
-    val_dataset.filter_samples(is_valid_file=is_val_image)
+    val_dataset.root_in_archive = 'ILSVRC12/val'
+    val_dataset.filter_samples()
+    val_dataset.assign_labels()
     val_dataset.transform = transforms.Compose([
         transforms.Resize(256),
         transforms.CenterCrop(224),

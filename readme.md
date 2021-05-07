@@ -35,7 +35,7 @@ There is a more comprehensive set of examples as a Jupyter notebook in [`example
 
 A large-scale data loading example is given in `imagenet-example.py`. Only the section of code responsible for data loading was modified from the [official PyTorch ImageNet example](https://github.com/pytorch/examples/tree/master/imagenet).
 
-First, ensure that the data is in the expected format for the original example to work. Then, create a Tar archive from it (`tar` on Linux or a utility like 7-Zip on Windows). Finally, run our modified `imagenet-example.py`, passing it the path to the Tar archive instead.
+First, ensure that the data is in the expected format for the original example to work, in a folder named `ILSVRC12`. Then, create a Tar archive from it (`tar cf ILSVRC12.tar ILSVRC12` on Linux or a utility like 7-Zip on Windows). Finally, run our modified `imagenet-example.py`, passing it the path to the Tar archive instead.
 
 
 ## Author

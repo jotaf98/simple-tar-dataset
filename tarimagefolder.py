@@ -48,41 +48,47 @@ class TarImageFolder(TarDataset):
   """
   def __init__(self, archive, transform=to_tensor, extensions=('.png', '.jpg', '.jpeg'),
     is_valid_file=None, root_in_archive=''):
-    # by default, filter files by extension
-    if is_valid_file is None:
-      def is_valid_file(m):
-        return (m.isfile() and m.name.lower().endswith(extensions))
-    
-    # also filter by root folder
-    root = root_in_archive  # handier
-    if root:
-      if not root.endswith('/'):
-        root = root + '/'  # enforce separator
+    self.root_in_archive = root_in_archive
 
-      def is_valid(m):
-        return (m.name.startswith(root) and is_valid_file(m))
+    # load the archive meta information, and filter the samples
+    super().__init__(archive=archive, transform=transform, is_valid_file=is_valid_file)
 
-    else:
-      is_valid = is_valid_file
-    self.root = root
+    # assign labels to each sample
+    self.assign_labels()
 
-    # load the archive meta information
-    super().__init__(archive=archive, transform=transform, is_valid_file=is_valid)
 
-    # assign a label to each image, based on the first folder after the root that
-    # it's placed in
+  def filter_samples(self, is_valid_file=None, extensions=('.png', '.jpg', '.jpeg')):
+    """In addition to TarDataset's filtering by extension (or user-supplied),
+    filter further to select only samples within the given root path."""
+    super().filter_samples(is_valid_file, extensions)
+    root = path_with_slash(self.root_in_archive)
+    self.samples = [filename for filename in self.samples if filename.startswith(root)]
+
+
+  def assign_labels(self):
+    """Assign a label to each image, based on the first folder after the root
+    that it's placed in"""
+    root = path_with_slash(self.root_in_archive)
     self.class_to_idx = {}
     self.targets = []
     for filename in self.samples:
       # extract the class name from the file's path inside the Tar archive
-      if root:
-        assert filename.startswith(root)  # sanity check (is_valid should ensure this)
+      if self.root_in_archive:
+        assert filename.startswith(root)  # sanity check (filter_samples should ensure this)
         filename = filename[len(root):]  # make path relative to root
       (class_name, _, _) = filename.partition('/')  # first folder level
 
       # assign increasing label indexes to each class name
       label = self.class_to_idx.setdefault(class_name, len(self.class_to_idx))
       self.targets.append(label)
+    
+    if len(self.class_to_idx) == 0:
+      raise IOError("No classes (top-level folders) were found with the given criteria. The given\n"
+        "extensions, is_valid_file or root_in_archive are too strict, or the archive is empty.")
+    elif len(self.class_to_idx) == 1:
+      raise IOError(f"Only one class (top-level folder) was found: {next(iter(self.class_to_idx))}.\n"
+        f"To choose the correct path in the archive where the label folders are located, specify\n"
+        f"root_in_archive in the TarImageFolder's constructor.")
     
     # the inverse mapping is often useful
     self.idx_to_class = {v: k for k, v in self.class_to_idx.items()}
@@ -109,3 +115,9 @@ class TarImageFolder(TarDataset):
 
     return (image, label)
 
+
+def path_with_slash(path):
+  """Helper function to return a path string ending with a slash (unless it's empty)."""
+  if path and not path.endswith('/'):
+    return path + '/'
+  return path

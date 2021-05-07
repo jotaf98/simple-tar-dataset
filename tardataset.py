@@ -55,6 +55,7 @@ class TarDataset(Dataset):
     
     self.transform = transform
 
+
   def filter_samples(self, is_valid_file=None, extensions=('.png', '.jpg', '.jpeg')):
     """Filter the Tar archive's files/folders to obtain the list of samples.
     
@@ -73,6 +74,7 @@ class TarDataset(Dataset):
 
     # filter the files to create the samples list
     self.samples = [m.name for m in self.members_by_name.values() if is_valid_file(m)]
+
 
   def __getitem__(self, index):
     """Return a single sample.
@@ -96,6 +98,7 @@ class TarDataset(Dataset):
       image = self.transform(image)
     return image
 
+
   def __len__(self):
     """Return the length of the dataset (length of self.samples)
 
@@ -103,6 +106,7 @@ class TarDataset(Dataset):
       int: Number of samples.
     """
     return len(self.samples)
+
 
   def get_image(self, name, pil=False):
     """Read an image from the Tar archive, returned as a PIL image or PyTorch tensor.
@@ -119,6 +123,7 @@ class TarDataset(Dataset):
       return image
     return to_tensor(image)
 
+
   def get_text_file(self, name, encoding='utf-8'):
     """Read a text file from the Tar archive, returned as a string.
 
@@ -130,6 +135,7 @@ class TarDataset(Dataset):
       str: Content of text file.
     """
     return self.get_file(name).read().decode(encoding)
+
 
   def get_file(self, name):
     """Read an arbitrary file from the Tar archive.
@@ -149,10 +155,12 @@ class TarDataset(Dataset):
 
     return self.tar_obj[worker].extractfile(self.members_by_name[name])
 
+
   def __del__(self):
     """Close the TarFile file handles on exit."""
     for o in self.tar_obj.values():
       o.close()
+
 
   def __getstate__(self):
     """Serialize without the TarFile references, for multiprocessing compatibility."""
