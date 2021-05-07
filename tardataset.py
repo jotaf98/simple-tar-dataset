@@ -16,7 +16,9 @@ class TarDataset(Dataset):
   """Dataset that supports Tar archives (uncompressed).
 
   Args:
-    archive (string): Path to the Tar file containing the dataset.
+    archive (string or TarDataset): Path to the Tar file containing the dataset.
+      Alternatively, pass in a TarDataset object to reuse its cached information;
+      this is useful for loading different subsets within the same archive.
     extensions (tuple): Extensions (strings starting with a dot), only files
       with these extensions will be iterated. Default: png/jpg/jpeg.
     is_valid_file (callable): Optional function that takes file information as
@@ -36,19 +38,25 @@ class TarDataset(Dataset):
   """
   def __init__(self, archive, transform=to_tensor, extensions=('.png', '.jpg', '.jpeg'),
     is_valid_file=None):
-    # open tar file. in a multiprocessing setting (e.g. DataLoader workers), we
-    # have to open one file handle per worker (stored as the tar_obj dict), since
-    # when the multiprocessing method is 'fork', the workers share this TarDataset.
-    # we want one file handle per worker because TarFile is not thread-safe.
-    self.archive = archive
+    if not isinstance(archive, TarDataset):
+      # open tar file. in a multiprocessing setting (e.g. DataLoader workers), we
+      # have to open one file handle per worker (stored as the tar_obj dict), since
+      # when the multiprocessing method is 'fork', the workers share this TarDataset.
+      # we want one file handle per worker because TarFile is not thread-safe.
+      worker = get_worker_info()
+      worker = worker.id if worker else None
+      self.tar_obj = {worker: tarfile.open(archive)}
+      self.archive = archive
 
-    worker = get_worker_info()
-    worker = worker.id if worker else None
-    self.tar_obj = {worker: tarfile.open(archive)}
-
-    # store headers of all files and folders by name
-    members = sorted(self.tar_obj[worker].getmembers(), key=lambda m: m.name)
-    self.members_by_name = {m.name: m for m in members}
+      # store headers of all files and folders by name
+      members = sorted(self.tar_obj[worker].getmembers(), key=lambda m: m.name)
+      self.members_by_name = {m.name: m for m in members}
+    else:
+      # passed a TarDataset into the constructor, reuse the same tar contents.
+      # no need to copy explicitly since this dict will not be modified again.
+      self.members_by_name = archive.members_by_name
+      self.archive = archive.archive  # the original path to the Tar file
+      self.tar_obj = {}  # will get filled by get_file on first access
 
     # also store references to the iterated samples (a subset of the above)
     self.filter_samples(is_valid_file, extensions)
