@@ -12,6 +12,22 @@ except:
 
 ImageFile.LOAD_TRUNCATED_IMAGES = True
 
+
+class UnexpectedEOFTarFile(tarfile.TarFile):
+  def _load(self):
+    """Read through the entire archive file and look for readable
+       members.
+    """
+    try:
+      while True:
+        tarinfo = self.next()
+        if tarinfo is None:
+          break
+    except tarfile.ReadError as e:
+      assert e.args[0] == "unexpected end of data"
+    self._loaded = True
+
+
 class TarDataset(Dataset):
   """Dataset that supports Tar archives (uncompressed).
 
@@ -27,6 +43,8 @@ class TarDataset(Dataset):
       Example: lambda m: m.isfile() and m.name.endswith('.png')
     transform (callable): Function applied to each image by __getitem__ (see
       torchvision.transforms). Default: ToTensor (convert PIL image to tensor).
+    ignore_unexpected_eof (bool): ignore Unexpected EOF when iterating the tar file
+      allows working with Datasets cut to a smaller size with dd
 
   Attributes:
     members_by_name (dict): Members (files and folders) found in the Tar archive,
@@ -37,7 +55,7 @@ class TarDataset(Dataset):
   Author: Joao F. Henriques
   """
   def __init__(self, archive, transform=to_tensor, extensions=('.png', '.jpg', '.jpeg'),
-    is_valid_file=None):
+    is_valid_file=None, ignore_unexpected_eof=False):
     if not isinstance(archive, TarDataset):
       # open tar file. in a multiprocessing setting (e.g. DataLoader workers), we
       # have to open one file handle per worker (stored as the tar_obj dict), since
@@ -45,7 +63,7 @@ class TarDataset(Dataset):
       # we want one file handle per worker because TarFile is not thread-safe.
       worker = get_worker_info()
       worker = worker.id if worker else None
-      self.tar_obj = {worker: tarfile.open(archive)}
+      self.tar_obj = {worker: tarfile.open(archive) if ignore_unexpected_eof is False else UnexpectedEOFTarFile.open(archive)}
       self.archive = archive
 
       # store headers of all files and folders by name
